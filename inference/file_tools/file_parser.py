@@ -19,14 +19,14 @@ from qwen_agent.log import logger
 from qwen_agent.settings import DEFAULT_WORKSPACE, DEFAULT_MAX_INPUT_TOKENS
 from qwen_agent.tools.base import BaseTool, register_tool
 from qwen_agent.tools.storage import KeyNotExistsError, Storage
-from file_tools.utils import (get_file_type, hash_sha256, is_http_url, get_basename_from_url, 
+from inference.file_tools.utils import (get_file_type, hash_sha256, is_http_url, get_basename_from_url, 
                                   sanitize_chrome_file_path, save_url_to_local_work_dir)
 from qwen_agent.utils.tokenization_qwen import count_tokens, tokenizer
-from file_tools.idp import IDP
+# from inference.file_tools.idp import IDP
 
 # Configuration constants
 PARSER_SUPPORTED_FILE_TYPES = ['pdf', 'docx', 'pptx', 'txt', 'html', 'csv', 'tsv', 'xlsx', 'xls', 'doc', 'zip', '.mp4', '.mov', '.mkv', '.webm', '.mp3', '.wav']
-USE_IDP = os.getenv("USE_IDP", True)
+USE_IDP = os.getenv("USE_IDP", False)
 IDP_TIMEOUT = 150000
 ENABLE_CSI = False
 PARAGRAPH_SPLIT_SYMBOL = '\n'

@@ -34,8 +34,8 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(current_dir)) 
 sys.path.append('../../')  
 
-from file_tools.file_parser import SingleFileParser, compress
-from file_tools.video_agent import VideoAgent
+from inference.file_tools.file_parser import SingleFileParser, compress
+from inference.file_tools.video_agent import VideoAgent
 
 FILE_SUMMARY_PROMPT = """
 Please process the following file content and user goal to extract relevant information:

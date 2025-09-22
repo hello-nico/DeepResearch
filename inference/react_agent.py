@@ -14,15 +14,15 @@ from qwen_agent.llm.schema import ASSISTANT, DEFAULT_SYSTEM_MESSAGE, Message
 from qwen_agent.settings import MAX_LLM_CALL_PER_RUN
 from qwen_agent.tools import BaseTool
 from qwen_agent.utils.utils import format_as_text_message, merge_generate_cfgs
-from prompt import *
+from inference.prompt import *
 import time
 import asyncio
 
-from tool_file import *
-from tool_scholar import *
-from tool_python import *
-from tool_search import *
-from tool_visit import *
+from inference.tool_file import FileParser
+from inference.tool_scholar import Scholar
+from inference.tool_python import PythonInterpreter
+from inference.tool_search import Search
+from inference.tool_visit import Visit
 
 OBS_START = '<tool_response>'
 OBS_END = '\n</tool_response>'
@@ -58,9 +58,19 @@ class MultiTurnReactAgent(FnCallAgent):
         return "<think>" in content and "</think>" in content
     
     def call_server(self, msgs, planning_port, max_tries=10):
-        
-        openai_api_key = "EMPTY"
-        openai_api_base = f"http://127.0.0.1:{planning_port}/v1"
+
+        # Check if using OpenRouter
+        openrouter_api_key = os.getenv('OPENROUTER_API_KEY')
+        openrouter_api_base = os.getenv('OPENROUTER_API_BASE', 'https://openrouter.ai/api/v1')
+
+        if openrouter_api_key:
+            # Use OpenRouter
+            openai_api_key = openrouter_api_key
+            openai_api_base = openrouter_api_base
+        else:
+            # Use local server
+            openai_api_key = "EMPTY"
+            openai_api_base = f"http://127.0.0.1:{planning_port}/v1"
 
         client = OpenAI(
             api_key=openai_api_key,
@@ -86,8 +96,8 @@ class MultiTurnReactAgent(FnCallAgent):
                 content = chat_response.choices[0].message.content
 
                 # OpenRouter provides API calling. If you want to use OpenRouter, you need to uncomment line 89 - 90.
-                # reasoning_content = "<think>\n" + chat_response.choices[0].message.reasoning.strip() + "\n</think>"
-                # content = reasoning_content + content                
+                reasoning_content = "<think>\n" + chat_response.choices[0].message.reasoning.strip() + "\n</think>"
+                content = reasoning_content + content                
                 
                 if content and content.strip():
                     print("--- Service call successful, received a valid response ---")
@@ -122,7 +132,14 @@ class MultiTurnReactAgent(FnCallAgent):
         
         return len(tokenizer.encode(full_prompt))
 
-    def _run(self, data: str, model: str, **kwargs) -> List[List[Message]]:
+    def _run(
+        self,
+        data: str,
+        model: str,
+        max_rounds: Optional[int] = None,
+        max_runtime_seconds: Optional[int] = None,
+        **kwargs,
+    ) -> List[List[Message]]:
         self.model=model
         try:
             question = data['item']['question']
@@ -131,6 +148,7 @@ class MultiTurnReactAgent(FnCallAgent):
             question = raw_msg.split("User:")[1].strip() if "User:" in raw_msg else raw_msg 
 
         start_time = time.time()
+        runtime_budget = max_runtime_seconds if max_runtime_seconds is not None else 150 * 60
         planning_port = data['planning_port']
         answer = data['item']['answer']
         self.user_prompt = question
@@ -141,10 +159,23 @@ class MultiTurnReactAgent(FnCallAgent):
         num_llm_calls_available = MAX_LLM_CALL_PER_RUN
         round = 0
         while num_llm_calls_available > 0:
+            if max_rounds is not None and round >= max_rounds:
+                limit_message = f"No answer found: maximum round limit {max_rounds} reached."
+                prediction = limit_message
+                termination = 'max_rounds_reached'
+                result = {
+                    "question": question,
+                    "answer": answer,
+                    "messages": messages,
+                    "prediction": prediction,
+                    "termination": termination
+                }
+                return result
             # Check whether time is reached
-            if time.time() - start_time > 150 * 60:  # 150 minutes in seconds
-                prediction = 'No answer found after 2h30mins'
-                termination = 'No answer found after 2h30mins'
+            if time.time() - start_time > runtime_budget:
+                limit_message = f"No answer found after {runtime_budget / 60:.1f} mins"
+                prediction = limit_message
+                termination = 'timeout'
                 result = {
                     "question": question,
                     "answer": answer,
