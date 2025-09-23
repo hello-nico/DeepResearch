@@ -3,7 +3,7 @@ import json5
 import os
 from typing import Dict, Iterator, List, Literal, Optional, Tuple, Union
 from qwen_agent.llm.schema import Message
-from qwen_agent.utils.utils import build_text_completion_prompt
+# from qwen_agent.utils.utils import build_text_completion_prompt  # Deprecated
 from openai import OpenAI, APIError, APIConnectionError, APITimeoutError
 import tiktoken
 from transformers import AutoTokenizer 
@@ -122,15 +122,25 @@ class MultiTurnReactAgent(FnCallAgent):
         return f"vllm server error!!!"
 
     def count_tokens(self, messages, model="gpt-4o"):
-        try: 
-            tokenizer = AutoTokenizer.from_pretrained(self.llm_local_path) 
-        except Exception as e: 
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(self.llm_local_path)
+        except Exception as e:
             tokenizer = tiktoken.encoding_for_model(model)
-        
-        full_message = [Message(**x) for x in messages]
-        full_prompt = build_text_completion_prompt(full_message, allow_special=True)
-        
-        return len(tokenizer.encode(full_prompt))
+
+        # 直接计算所有消息的 token 数量，不使用已弃用的 build_text_completion_prompt
+        total_tokens = 0
+        for msg in messages:
+            if isinstance(msg, dict):
+                content = msg.get("content", "")
+                role = msg.get("role", "")
+                # 计算每个消息内容的 token 数量
+                total_tokens += len(tokenizer.encode(content))
+                # 添加角色标记的 token 数量（粗略估计）
+                total_tokens += len(tokenizer.encode(role)) + 4  # 4 个额外 token 用于格式化
+            else:
+                total_tokens += len(tokenizer.encode(str(msg)))
+
+        return total_tokens
 
     def _run(
         self,

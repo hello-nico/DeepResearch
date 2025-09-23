@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from operator import add
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 from uuid import uuid4
+from pydantic import ConfigDict
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.output_parsers import StrOutputParser
@@ -49,9 +50,10 @@ class ResearchState(TypedDict, total=False):
     active_task_index: Optional[int]
 
 
-@dataclass
 class DeepResearchAdapter(RunnableSerializable):
     """将 MultiTurnReactAgent 输出适配为 LangGraph 消息序列。"""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     agent: MultiTurnReactAgent
     model: str
@@ -242,7 +244,7 @@ def create_default_planner(llm: Runnable) -> Runnable:
             (
                 "system",
                 "你是研究规划师。请根据用户问题拆分 2-4 个可执行步骤，"
-                "以 JSON 格式返回 {\"steps\": [{\"task\": str, \"deliverable\": str}]}.",
+                "以 JSON 格式返回 {{\"steps\": [{{\"task\": str, \"deliverable\": str}}]}}.",
             ),
             ("placeholder", "{messages}"),
         ]
