@@ -11,4 +11,5 @@ def run_research(question: str):
 
 
 if __name__ == "__main__":
-    run_research("A Survey on RAG")
+    result = run_research("A Survey on RAG")
+    print(result)

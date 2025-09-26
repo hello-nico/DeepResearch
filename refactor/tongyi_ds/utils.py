@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+import json5
 import tiktoken
+
+from refactor.tongyi_ds.constants import EVIDENCE_JSON_END, EVIDENCE_JSON_START
 
 
 @dataclass(slots=True)
@@ -51,6 +55,55 @@ def extract_tool_call_block(content: str) -> Optional[str]:
     return match.group(1).strip()
 
 
+JSON5_DECODE_ERROR = getattr(json5, "JSONDecodeError", Exception)
+
+_LOGGER_ROOT_NAME = "tongyi_ds"
+
+
+def _ensure_logger_configured() -> logging.Logger:
+    logger = logging.getLogger(_LOGGER_ROOT_NAME)
+    if logger.handlers:
+        return logger
+
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    return logger
+
+
+def get_logger(child: Optional[str] = None) -> logging.Logger:
+    base = _ensure_logger_configured()
+    if not child:
+        return base
+    return base.getChild(child)
+
+
+def build_evidence_block(
+    summary: str,
+    evidence: str,
+    rational: str = "",
+    url: str = "",
+) -> str:
+    """生成带有证据链标记的 JSON 片段，附加可选 URL。"""
+
+    record = {
+        "rational": rational,
+        "evidence": evidence,
+        "summary": summary,
+    }
+    url_value = url.strip()
+    if url_value:
+        record["url"] = url_value
+    payload = json.dumps(record, ensure_ascii=False)
+    return f"{EVIDENCE_JSON_START}{payload}{EVIDENCE_JSON_END}"
+
+
 def parse_tool_call(content: str) -> Optional[ToolCall]:
     """解析工具调用 JSON，失败时返回 None。"""
 
@@ -58,8 +111,8 @@ def parse_tool_call(content: str) -> Optional[ToolCall]:
     if not block:
         return None
     try:
-        payload = json.loads(block)
-    except json.JSONDecodeError:
+        payload = json5.loads(block)
+    except JSON5_DECODE_ERROR:
         return None
     name = payload.get("name")
     arguments = payload.get("arguments", {})

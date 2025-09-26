@@ -3,13 +3,18 @@ import json
 import os
 from typing import List, Optional, Sequence, Union
 
+import json5
 import requests
 from qwen_agent.tools.base import BaseTool, register_tool
 
+from refactor.tongyi_ds.utils import build_evidence_block
 
 SERPER_KEY = os.environ.get("SERPER_KEY_ID", "")
 TAVILY_KEY = os.environ.get("TAVILY_API_KEY", "")
 DEFAULT_PROVIDER = os.environ.get("SEARCH_PROVIDER", "auto").lower()
+
+
+JSON5_DECODE_ERROR = getattr(json5, "JSONDecodeError", Exception)
 
 
 def _contains_cjk(text: str) -> bool:
@@ -128,8 +133,8 @@ class Search(BaseTool):
             )
 
         try:
-            results = json.loads(data.decode("utf-8"))
-        except json.JSONDecodeError:
+            results = json5.loads(data.decode("utf-8"))
+        except JSON5_DECODE_ERROR:
             return _SearchResult(False, "[Search] Failed to decode Serper response.")
 
         organic = results.get("organic", [])
@@ -139,6 +144,7 @@ class Search(BaseTool):
             )
 
         snippets = []
+        evidence_blocks: List[str] = []
         for idx, page in enumerate(organic, start=1):
             date_info = f"\nDate published: {page['date']}" if page.get("date") else ""
             source_info = f"\nSource: {page['source']}" if page.get("source") else ""
@@ -150,6 +156,20 @@ class Search(BaseTool):
                 f"{idx}. [{page.get('title', 'Untitled')}]({page.get('link', '')})"
                 f"{date_info}{source_info}{snippet_body}"
             )
+            url_value = (
+                page.get("link")
+                or page.get("pdfUrl")
+                or page.get("cacheUrl")
+                or ""
+            )
+            evidence_blocks.append(
+                build_evidence_block(
+                    summary=snippet_text or page.get("title", ""),
+                    evidence=snippet_text or page.get("title", ""),
+                    rational=f"Search result {idx} for query '{query}'.",
+                    url=str(url_value or ""),
+                )
+            )
 
         body = "\n\n".join(snippets)
         content = (
@@ -157,7 +177,9 @@ class Search(BaseTool):
             "## Web Results\n"
             f"{body}"
         )
-        return _SearchResult(True, content)
+        evidence_section = "\n".join(block for block in evidence_blocks if block)
+        payload = f"{content}\n{evidence_section}" if evidence_section else content
+        return _SearchResult(True, payload)
 
     def _search_tavily(self, query: str):
         if not TAVILY_KEY:
@@ -196,6 +218,7 @@ class Search(BaseTool):
             return _SearchResult(False, f"No results found for '{query}' via Tavily.")
 
         snippets = []
+        evidence_blocks: List[str] = []
         for idx, item in enumerate(results, start=1):
             snippet_text = item.get("content", "")
             source = item.get("author") or item.get("metadata", {}).get("source")
@@ -203,6 +226,14 @@ class Search(BaseTool):
             snippets.append(
                 f"{idx}. [{item.get('title', 'Untitled')}]({item.get('url', '')})"
                 f"{source_info}\n{snippet_text}"
+            )
+            evidence_blocks.append(
+                build_evidence_block(
+                    summary=snippet_text or item.get("title", ""),
+                    evidence=snippet_text or item.get("title", ""),
+                    rational=f"Search result {idx} for query '{query}'.",
+                    url=str(item.get("url", "")),
+                )
             )
 
         answer_block = data.get("answer")
@@ -212,7 +243,9 @@ class Search(BaseTool):
             f"A Tavily search for '{query}' found {len(snippets)} results:\n\n"
             f"{answer_text}## Web Results\n{body}"
         )
-        return _SearchResult(True, content)
+        evidence_section = "\n".join(block for block in evidence_blocks if block)
+        payload = f"{content}\n{evidence_section}" if evidence_section else content
+        return _SearchResult(True, payload)
 
 
 class _SearchResult:

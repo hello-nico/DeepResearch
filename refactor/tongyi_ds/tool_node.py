@@ -6,6 +6,10 @@ from typing import Dict
 
 from refactor.tongyi_ds.state import AgentState
 from refactor.tongyi_ds.tool_runtime import ToolInvoker
+from refactor.tongyi_ds.utils import get_logger
+
+
+logger = get_logger("tool_node")
 
 
 class ToolNode:
@@ -26,6 +30,7 @@ class ToolNode:
 
         result = self.invoker.invoke(name, arguments)
         user_feedback = f"<tool_response>\n{result}\n</tool_response>"
+        logger.info(user_feedback)
 
         return AgentState(
             messages=[{"role": "user", "content": user_feedback}],

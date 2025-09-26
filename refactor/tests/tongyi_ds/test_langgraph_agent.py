@@ -101,7 +101,10 @@ def test_graph_exhaust_llm_calls_limits():
 
 
 def test_graph_collects_evidence_chains(base_config):
-    evidence_json = '{"rational": "step", "evidence": "doc", "summary": "insight"}'
+    evidence_json = (
+        '{"rational": "step", "evidence": "doc", "summary": "insight", "url": '
+        '"https://example.com/doc"}'
+    )
 
     class EvidenceTool(DummyTool):
         def call(self, params):
@@ -127,7 +130,9 @@ def test_graph_collects_evidence_chains(base_config):
     assert result_state["termination"] == "answer"
     assert result_state["prediction"] == "done"
     assert result_state["evidence_chains"]
-    assert result_state["evidence_chains"][0]["summary"] == "insight"
+    evidence_entry = result_state["evidence_chains"][0]
+    assert evidence_entry["summary"] == "insight"
+    assert evidence_entry["url"] == "https://example.com/doc"
 
 
 @pytest.mark.skipif(

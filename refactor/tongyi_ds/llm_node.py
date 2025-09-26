@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import copy
-import json
+import json5
 import time
 from typing import Dict, List, Optional
 
@@ -18,9 +18,13 @@ from refactor.tongyi_ds.state import AgentState
 from refactor.tongyi_ds.utils import (
     count_tokens,
     extract_answer,
+    get_logger,
     parse_tool_call,
     strip_tool_response,
 )
+
+
+logger = get_logger("llm_node")
 
 
 class LLMNode:
@@ -62,9 +66,9 @@ class LLMNode:
         metadata["llm_calls_remaining"] = max(max_calls - (calls_used + 1), 0)
 
         response = self.llm.invoke(messages)
+        logger.info("Round %s: %s", round_index + 1, response)
         clean_content = strip_tool_response(response)
         assistant_message = {"role": "assistant", "content": clean_content}
-        print(f"[llm] round {round_index + 1}, calls_used={calls_used + 1}")
 
         updated_messages = messages + [assistant_message]
 
@@ -73,7 +77,7 @@ class LLMNode:
         if token_limit:
             token_count = count_tokens(updated_messages, token_model)
             metadata["token_usage"] = token_count
-            print(f"[llm] token count={token_count}")
+            logger.info("[llm] token count=%s", token_count)
             if token_count > token_limit:
                 return self._limit_reached(
                     updated_messages,
@@ -96,6 +100,14 @@ class LLMNode:
             )
             if extractor_outputs:
                 evidence_chains.extend(extractor_outputs)
+
+        visited_count = len(evidence_chains)
+        logger.info(
+            "[llm] round %s, calls_used=%s, visited_webpages=%s",
+            round_index + 1,
+            calls_used + 1,
+            visited_count,
+        )
 
         answer = extract_answer(clean_content)
         termination = state.get("termination")
@@ -172,15 +184,20 @@ class LLMNode:
         if not payload:
             return None
         try:
-            data = json.loads(payload)
-        except json.JSONDecodeError:
+            data = json5.loads(payload)
+        except JSON5_DECODE_ERROR:
             return None
         if not isinstance(data, dict):
             return None
         if not EVIDENCE_REQUIRED_FIELDS.issubset(data.keys()):
             return None
-        return {
+        record = {
             "rational": str(data.get("rational", "")),
             "evidence": str(data.get("evidence", "")),
             "summary": str(data.get("summary", "")),
         }
+        url_value = data.get("url")
+        if isinstance(url_value, str) and url_value.strip():
+            record["url"] = url_value.strip()
+        return record
+JSON5_DECODE_ERROR = getattr(json5, "JSONDecodeError", Exception)

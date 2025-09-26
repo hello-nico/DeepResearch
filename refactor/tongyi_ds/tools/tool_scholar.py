@@ -1,12 +1,18 @@
-import os
-import json
-from typing import Union, List
-from qwen_agent.tools.base import BaseTool, register_tool
-from concurrent.futures import ThreadPoolExecutor
 import http.client
+import json
+import os
+from concurrent.futures import ThreadPoolExecutor
+from typing import List, Union
+
+import json5
+from qwen_agent.tools.base import BaseTool, register_tool
+
+from refactor.tongyi_ds.utils import build_evidence_block, get_logger
 
 
 SERPER_KEY = os.environ.get("SERPER_KEY_ID")
+JSON5_DECODE_ERROR = getattr(json5, "JSONDecodeError", Exception)
+logger = get_logger("tool_scholar")
 
 
 @register_tool("google_scholar", allow_overwrite=True)
@@ -39,8 +45,8 @@ class Scholar(BaseTool):
                 conn.request("POST", "/scholar", payload, headers)
                 res = conn.getresponse()
                 break
-            except Exception as e:
-                print(e)
+            except Exception as exc:
+                logger.exception("[scholar] request failure for %s: %s", query, exc)
                 if i == 4:
                     return (
                         "Google Scholar Timeout, return None, Please try again later."
@@ -49,7 +55,10 @@ class Scholar(BaseTool):
 
         data = res.read()
 
-        results = json.loads(data.decode("utf-8"))
+        try:
+            results = json5.loads(data.decode("utf-8"))
+        except JSON5_DECODE_ERROR:
+            return "Google Scholar response could not be decoded."
         try:
             if "organic" not in results:
                 raise Exception(
@@ -57,6 +66,7 @@ class Scholar(BaseTool):
                 )
 
             web_snippets = list()
+            evidence_blocks: List[str] = []
             idx = 0
             if "organic" in results:
                 for page in results["organic"]:
@@ -90,11 +100,27 @@ class Scholar(BaseTool):
                     )
                     web_snippets.append(redacted_version)
 
+                    snippet_text = page.get("snippet", "")
+                    evidence_blocks.append(
+                        build_evidence_block(
+                            summary=(snippet_text or page.get("title", "")).strip(),
+                            evidence=(snippet_text or page.get("title", "")).strip(),
+                            rational=f"Scholar result {idx} for query '{query}'.",
+                            url=str(
+                                page.get("link")
+                                or page.get("pdfUrl")
+                                or page.get("cachedPageUrl")
+                                or ""
+                            ),
+                        )
+                    )
+
             content = (
                 f"A Google scholar for '{query}' found {len(web_snippets)} results:\n\n## Scholar Results\n"
                 + "\n\n".join(web_snippets)
             )
-            return content
+            evidence_section = "\n".join(block for block in evidence_blocks if block)
+            return f"{content}\n{evidence_section}" if evidence_section else content
         except Exception:
             return f"No results found for '{query}'. Try with a more general query."
 

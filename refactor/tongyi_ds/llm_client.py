@@ -10,6 +10,10 @@ from typing import List, Protocol
 from openai import APIConnectionError, APIError, APITimeoutError, OpenAI
 
 from refactor.tongyi_ds.config import LLMGenerateConfig, LLMRuntimeConfig
+from refactor.tongyi_ds.utils import get_logger
+
+
+logger = get_logger("llm_client")
 
 
 class LLMClient(Protocol):
@@ -37,6 +41,11 @@ class OpenRouterLLMClient:
 
         for attempt in range(self.runtime.max_retries):
             try:
+                logger.info(
+                    "--- Attempting to call the service, try %s/%s ---",
+                    attempt + 1,
+                    self.runtime.max_retries,
+                )
                 response = client.chat.completions.create(
                     model=self.runtime.model,
                     messages=messages,
@@ -55,19 +64,43 @@ class OpenRouterLLMClient:
                         f"{self.runtime.reasoning_prefix}{reasoning.strip()}{self.runtime.reasoning_suffix}\n"
                         f"{content}"
                     )
-                    return combined.strip()
-                return content.strip()
+                    payload = combined.strip()
+                else:
+                    payload = content.strip()
+
+                if payload:
+                    logger.info(
+                        "--- Service call successful, received a valid response ---"
+                    )
+                    return payload
+
+                logger.warning(
+                    "Warning: Attempt %s received an empty response.", attempt + 1
+                )
             except (APIError, APIConnectionError, APITimeoutError) as exc:
+                logger.error(
+                    "Error: Attempt %s failed with an API or network error: %s",
+                    attempt + 1,
+                    exc,
+                )
                 if attempt == self.runtime.max_retries - 1:
                     raise RuntimeError(f"OpenRouter 调用失败: {exc}") from exc
                 sleep_time = min(base_sleep * (2**attempt) + random.uniform(0, 1), 30)
+                logger.info("Retrying in %.2f seconds...", sleep_time)
                 time.sleep(sleep_time)
             except Exception as exc:  # noqa: BLE001
+                logger.exception(
+                    "Error: Attempt %s failed with an unexpected error: %s",
+                    attempt + 1,
+                    exc,
+                )
                 if attempt == self.runtime.max_retries - 1:
                     raise RuntimeError(f"LLM 调用出现未知错误: {exc}") from exc
                 sleep_time = min(base_sleep * (2**attempt) + random.uniform(0, 1), 30)
+                logger.info("Retrying in %.2f seconds...", sleep_time)
                 time.sleep(sleep_time)
 
+        logger.error("Error: All retry attempts have been exhausted. The call has failed.")
         raise RuntimeError("OpenRouter 调用在所有重试后仍失败。")
 
     def _ensure_client(self) -> OpenAI:

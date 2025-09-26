@@ -5,6 +5,7 @@ import re
 import time
 from typing import Dict, Iterable, List, Optional, Tuple, Union
 
+import json5
 import requests
 import tiktoken
 from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
@@ -15,6 +16,11 @@ from qwen_agent.tools.base import BaseTool, register_tool
 
 from refactor.tongyi_ds.constants import EVIDENCE_JSON_END, EVIDENCE_JSON_START
 from refactor.tongyi_ds.tools.tool_crawl import Crawler
+from refactor.tongyi_ds.utils import get_logger
+
+
+JSON5_DECODE_ERROR = getattr(json5, "JSONDecodeError", Exception)
+logger = get_logger("tool_visit")
 
 
 # ---------------- util ----------------
@@ -91,11 +97,16 @@ class Visit(BaseTool):
                         asyncio.run(self._read_and_summarize(item, goal))
                     )
                 except Exception as exc:
+                    logger.exception("[visit] Error fetching %s: %s", item, exc)
                     response_blocks.append(f"Error fetching {item}: {exc}")
             response = "\n=======\n".join(response_blocks)
 
         preview = response[:500] + ("..." if len(response) > 500 else "")
-        print(f"[visit] Summary length {len(response)}; preview: {preview}")
+        logger.info(
+            "[visit] Summary length %s; preview: %s",
+            len(response),
+            preview,
+        )
         return response.strip()
 
     # ---------------- core with Crawl4AI ----------------
@@ -127,14 +138,14 @@ class Visit(BaseTool):
         try:
             jina_text = await asyncio.to_thread(self._fetch_via_jina, url)
         except Exception as exc:  # noqa: BLE001
-            print(f"[visit] Jina fetch error for {url}: {exc}")
+            logger.exception("[visit] Jina fetch error for %s: %s", url, exc)
             jina_text = ""
 
         if self._is_valid_content(jina_text):
-            print(f"[visit] Content fetched via Jina for {url}")
+            logger.info("[visit] Content fetched via Jina for %s", url)
             return jina_text, {"source": "jina"}
 
-        print(f"[visit] Jina returned empty for {url}, fallback to Crawl4AI")
+        logger.info("[visit] Jina returned empty for %s, fallback to Crawl4AI", url)
         return await self._fetch_with_crawl4ai(url, pdf=False)
 
     def _fetch_via_jina(self, url: str) -> str:
@@ -165,7 +176,7 @@ class Visit(BaseTool):
                 result = await crawler.arun(url=url, config=run_cfg)
 
         if not result or not result.success:
-            print(f"[visit] Crawl4AI fetch failed for {url}")
+            logger.error("[visit] Crawl4AI fetch failed for %s", url)
             return "", {}
 
         text = pick_markdown(result)
@@ -206,8 +217,8 @@ class Visit(BaseTool):
         if not payload:
             return None
         try:
-            data = json.loads(payload)
-        except json.JSONDecodeError:
+            data = json5.loads(payload)
+        except JSON5_DECODE_ERROR:
             return None
         if not isinstance(data, dict):
             return None
@@ -215,11 +226,15 @@ class Visit(BaseTool):
         summary = data.get("summary")
         if not evidence or not summary:
             return None
-        return {
+        record = {
             "evidence": str(evidence),
             "summary": str(summary),
             "rational": str(data.get("rational", "")),
         }
+        url_value = data.get("url")
+        if isinstance(url_value, str) and url_value.strip():
+            record["url"] = url_value.strip()
+        return record
 
     def _summarize_content(
         self, content: str, goal: str, summarizer, max_retries: int
@@ -304,12 +319,16 @@ class Visit(BaseTool):
         summary_text = summary.get(
             "summary", "The webpage content could not be processed."
         )
+        record = dict(summary)
+        if not record.get("url"):
+            record["url"] = url
+
         body = (
             f"The useful information in {url} for user goal {goal} as follows: \n\n"
             f"Evidence in page: \n{evidence}\n\n"
             f"Summary: \n{summary_text}\n\n"
         )
-        summary_json = json.dumps(summary, ensure_ascii=False)
+        summary_json = json.dumps(record, ensure_ascii=False)
         return f"{body}{EVIDENCE_JSON_START}{summary_json}{EVIDENCE_JSON_END}"
 
     def _build_empty_response(self, url: str, goal: str) -> str:

@@ -42,7 +42,7 @@ class LLMRuntimeConfig:
 class AgentRuntimeConfig:
     """Agent 内部控制参数。"""
 
-    max_llm_calls: int = int(os.getenv("MAX_LLM_CALL_PER_RUN", "100"))
+    max_llm_calls: int = int(os.getenv("MAX_LLM_CALL_PER_RUN", "3"))
     max_runtime_seconds: int = 150 * 60
     token_limit: int = 108 * 1024
     token_model: str = "gpt-4o"
