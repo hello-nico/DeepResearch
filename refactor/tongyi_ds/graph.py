@@ -31,7 +31,7 @@ def build_tongyi_deepresearch_graph(
 
     workflow = StateGraph(AgentState)
     workflow.add_node("llm", LLMNode(llm, cfg))
-    workflow.add_node("tool", ToolNode(tools))
+    workflow.add_node("tool", ToolNode(tools, cfg.agent_runtime))
     workflow.add_node("finalize", FinalizeNode())
     workflow.set_entry_point("llm")
 
@@ -73,7 +73,9 @@ def run_tongyi_deepresearch(
         agent_runtime=cfg.agent_runtime,
         extra_metadata=extra_metadata,
     )
-    recursion_limit = max(2 * cfg.agent_runtime.max_llm_calls + 10, 50)
+    llm_limit = cfg.agent_runtime.max_llm_calls
+    tool_limit = cfg.agent_runtime.max_tool_calls
+    recursion_limit = max(2 * (llm_limit + tool_limit) + 10, 50)
     final_state = graph.invoke(
         initial_state,
         {"recursion_limit": recursion_limit},

@@ -42,10 +42,24 @@ class LLMRuntimeConfig:
 class AgentRuntimeConfig:
     """Agent 内部控制参数。"""
 
-    max_llm_calls: int = int(os.getenv("MAX_LLM_CALL_PER_RUN", "3"))
+    max_llm_calls: int = int(os.getenv("MAX_LLM_CALL", "30"))
+    max_tool_calls: Optional[int] = None
     max_runtime_seconds: int = 150 * 60
     token_limit: int = 108 * 1024
     token_model: str = "gpt-4o"
+
+    def __post_init__(self) -> None:
+        env_value = os.getenv("MAX_TOOL_CALL", "100")
+        if self.max_tool_calls is None:
+            if env_value:
+                try:
+                    self.max_tool_calls = int(env_value)
+                except ValueError:
+                    self.max_tool_calls = self.max_llm_calls
+            else:
+                self.max_tool_calls = self.max_llm_calls
+        if self.max_tool_calls is None or self.max_tool_calls <= 0:
+            self.max_tool_calls = self.max_llm_calls
 
 
 @dataclass(slots=True)

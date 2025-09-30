@@ -42,6 +42,16 @@ class LLMNode:
         evidence_chains = list(state.get("evidence_chains", []))
         max_calls = self.config.agent_runtime.max_llm_calls
 
+        termination_reason = metadata.get("termination_reason")
+        if termination_reason == "max_tool_calls":
+            return self._limit_reached(
+                messages,
+                metadata,
+                reason="max_tool_calls",
+                calls_used=calls_used,
+                evidence_chains=evidence_chains,
+            )
+
         if calls_used >= max_calls:
             return self._limit_reached(
                 messages,
@@ -141,6 +151,7 @@ class LLMNode:
             "max_llm_calls": "exhausted_llm_calls",
             "timeout": "timeout",
             "token_limit": "token_limit_reached",
+            "max_tool_calls": "exhausted_tool_calls",
         }.get(reason, reason)
         max_calls = self.config.agent_runtime.max_llm_calls
         metadata["round"] = calls_used
@@ -152,6 +163,8 @@ class LLMNode:
             prediction = f"No answer found after {metadata.get('max_runtime_seconds', 0) / 60:.1f} mins"
         elif reason == "token_limit":
             prediction = "Token limit exceeded before producing a final answer."
+        elif reason == "max_tool_calls":
+            prediction = "No answer found: maximum tool call limit reached."
         metadata["termination_reason"] = reason
         return AgentState(
             prediction=prediction,

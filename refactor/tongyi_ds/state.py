@@ -15,6 +15,7 @@ class AgentState(TypedDict, total=False):
 
     messages: Annotated[List[Dict[str, str]], operator.add]
     llm_calls_used: Annotated[int, operator.add]
+    tool_calls_used: Annotated[int, operator.add]
     round_index: Annotated[int, operator.add]
     evidence_chains: Annotated[List[Dict[str, str]], operator.add]
     pending_tool_call: Optional[Dict[str, Any]]
@@ -39,6 +40,7 @@ def build_initial_state(
     metadata: Dict[str, Any] = {
         "round": 0,
         "llm_calls_remaining": runtime.max_llm_calls,
+        "tool_calls_remaining": runtime.max_tool_calls,
         "start_time": time.time(),
         "max_runtime_seconds": runtime.max_runtime_seconds,
         "token_limit": runtime.token_limit,
@@ -55,6 +57,7 @@ def build_initial_state(
     return AgentState(
         messages=initial_messages,
         llm_calls_used=0,
+        tool_calls_used=0,
         round_index=0,
         evidence_chains=[],
         pending_tool_call=None,
